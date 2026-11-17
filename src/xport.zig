@@ -53,6 +53,8 @@ pub fn read(a: std.mem.Allocator, bytes: []const u8, name: []const u8) Error!*Da
     if (!std.mem.startsWith(u8, bytes[p..], "HEADER RECORD*******MEMBER"))
         return error.NotXport;
     const namestr_size = parseNum(bytes[p + 74 .. p + 78]) orelse 140;
+    // data set label: bytes 32..72 of the second descriptor record
+    const ds_label = if (bytes.len >= p + 240 + 72) trimTrail(bytes[p + 240 + 32 .. p + 240 + 72]) else "";
     p += 80 + 80 + 160; // MEMBER header, DSCRPTR header, 2 descriptor records
     if (!std.mem.startsWith(u8, bytes[p..], "HEADER RECORD*******NAMESTR"))
         return error.NotXport;
@@ -86,6 +88,7 @@ pub fn read(a: std.mem.Allocator, bytes: []const u8, name: []const u8) Error!*Da
 
     const ds = try a.create(Dataset);
     ds.* = Dataset.init(a, name);
+    if (ds_label.len > 0) ds.label = try a.dupe(u8, ds_label);
     for (vars) |v| {
         _ = try ds.addColumn(v.name, if (v.is_char) .char else .num);
         // restore the metadata the NAMESTR carries (BUG-xportmeta)
@@ -216,7 +219,16 @@ pub fn writeReport(a: std.mem.Allocator, ds: *const Dataset, diags: ?*diag.Diagn
     if (ds.name.len > 8) // F3: same loud truncation pattern as variable names
         loud(diags, .warning, "XPORT: member name '{s}' truncated to 8 characters ('{s}')", .{ ds.name, mem[0..] });
     try rec80(a, &buf, try std.fmt.allocPrint(a, "SAS     {s}SASDATA 9.4     openSAS                          {s}", .{ mem, dt }));
-    try rec80(a, &buf, dt ++ (" " ** 64));
+    // Second descriptor record (TS-140): modified datetime 0..16, 16 blanks,
+    // the 40-char DATA SET LABEL at 32..72, the 8-char type at 72..80. The
+    // label was written blank whatever the data set carried, so a label set
+    // by PROC DATASETS MODIFY vanished from the transport file at rc 0.
+    var dlabel: [40]u8 = (" " ** 40).*;
+    if (ds.label) |l| {
+        if (l.len > 40) loud(diags, .warning, "XPORT: label of data set '{s}' truncated to 40 characters", .{ds.name});
+        @memcpy(dlabel[0..@min(40, l.len)], l[0..@min(40, l.len)]);
+    }
+    try rec80(a, &buf, try std.fmt.allocPrint(a, "{s}{s}{s}{s}", .{ dt, " " ** 16, dlabel, " " ** 8 }));
 
     // NAMESTR header — 4-digit variable count at offset 54
     try rec80(a, &buf, try std.fmt.allocPrint(a, "HEADER RECORD*******NAMESTR HEADER RECORD!!!!!!!000000{d:0>4}00000000000000000000  ", .{nvars}));
@@ -760,4 +772,32 @@ test "IBM hex float decode: known values and missings" {
     try t.expect(ibmToValue(&.{ '.', 0, 0, 0, 0, 0, 0, 0 }).isMissing());
     // 0.5 = 8 · 16^-1 → 0x40 0x80 …
     try t.expectEqual(@as(f64, 0.5), ibmToValue(&.{ 0x40, 0x80, 0, 0, 0, 0, 0, 0 }).num);
+}
+
+test "XPORT round-trip keeps the data set label; over 40 chars warns and truncates" {
+    const t = std.testing;
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var ds = Dataset.init(a, "dm");
+    _ = try ds.addColumn("x", .num);
+    ds.label = "Demographics";
+    const bytes = try write(a, &ds);
+    // the label sits at 32..72 of the second descriptor record (file offset 480)
+    try t.expectEqualStrings("Demographics", trimTrail(bytes[480 + 32 .. 480 + 72]));
+    const back = try read(a, bytes, "dm");
+    try t.expectEqualStrings("Demographics", back.label.?);
+
+    var plain = Dataset.init(a, "dm");
+    _ = try plain.addColumn("x", .num);
+    const back2 = try read(a, try write(a, &plain), "dm");
+    try t.expect(back2.label == null); // unset stays unset
+
+    var long = Dataset.init(a, "dm");
+    _ = try long.addColumn("x", .num);
+    long.label = "A data set label that is longer than forty characters";
+    var diags = diag.Diagnostics.init(a);
+    const back3 = try read(a, try writeReport(a, &long, &diags), "dm");
+    try t.expectEqualStrings("A data set label that is longer than for", back3.label.?);
+    try t.expect(diags.list.items.len == 1);
 }

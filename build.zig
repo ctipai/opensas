@@ -44,8 +44,15 @@ pub fn build(b: *std.Build) void {
     // %SYSGET a real getenv (macro.zig envValue). Linux release binaries stay
     // libc-free (no glibc versioning) — they read /proc/self/environ instead.
     const native_libc: ?bool = if (target.result.os.tag == .macos) true else null;
+    // Debug information carries the absolute paths of the source tree and the
+    // Zig installation, so two builds of one commit in two directories differ.
+    // `-Dstrip=true` leaves them out: the same commit, target and optimize mode
+    // then give a byte-identical binary wherever it is built, which lets a
+    // consumer pin a build by its SHA-256.
+    const strip = b.option(bool, "strip", "Omit debug information so the binary is reproducible across build directories");
     const mod = b.addModule("sas", .{
         .link_libc = native_libc,
+        .strip = strip,
         // The root source file is the "entry point" of this module. Users of
         // this module will only be able to access public declarations contained
         // in this file, which means that if you have declarations that you
@@ -81,6 +88,7 @@ pub fn build(b: *std.Build) void {
             // unlike b.addModule, it does not expose the module to consumers of
             // this package, which is why in this case we don't have to give it a name.
             .root_source_file = b.path("src/main.zig"),
+            .strip = strip,
             // Target and optimization levels must be explicitly wired in when
             // defining an executable or library (in the root module), and you
             // can also hardcode a specific target for an executable or library
