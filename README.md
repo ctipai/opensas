@@ -72,7 +72,9 @@ S002      WEEK4        135      88   103.7
 S002      BASELINE     142      91     108
 ```
 
-`opensas --sasautos ./macros program.sas` adds an autocall macro library. A
+`opensas --sasautos ./macros program.sas` adds an autocall macro library.
+`opensas --log run.log program.sas` writes the whole log (both streams, in the
+order written) to `run.log`, for a caller with no shell to redirect them. A
 `libname` points to a directory; members resolve as `.sas7bdat`, `.xpt` or
 `.csv`, and datasets the program writes land there in the same formats.
 [`tests/programs/dm`](tests/programs/dm) is a complete example: a raw
