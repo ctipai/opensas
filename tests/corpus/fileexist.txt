@@ -1,0 +1,2 @@
+sysfunc: fx=1 fn=0 two=use three=none
+x=1 s=1 m=0 d=1 v=1 b=0

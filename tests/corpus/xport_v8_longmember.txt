@@ -1,0 +1,13 @@
+                          The CONTENTS Procedure
+
+Data Set Name  lm.a_member_name_of_thirty_two_chr
+Observations   2
+Variables      2
+
+              Alphabetic List of Variables and Attributes
+
+#  Variable       Type  Len  Format      Informat  Label
+2  ARM            Char    7                        Planned arm
+1  VISITDATETIME  Num     8  E8601DT19.            Visit date and time
+VISITDATETIME=2020-01-01T00:00:00 ARM=Placebo
+VISITDATETIME=2020-01-02T00:00:00 ARM=Drug A

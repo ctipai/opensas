@@ -1,0 +1,59 @@
+                          The CONTENTS Procedure
+
+Data Set Name  v8.pair
+Label          Paired v5/v8 fixture
+Observations   3
+Variables      4
+
+              Alphabetic List of Variables and Attributes
+
+#  Variable          Type  Len  Format  Informat  Label
+4  AGE               Num     8                    Age
+2  LONGVARIABLENAME  Num     8                    A label that runs well past the forty character v5 limit
+3  NOTE              Char  230                    Free text
+1  USUBJID           Char    5                    Unique Subject Identifier
+                          The CONTENTS Procedure
+
+Data Set Name  v5.pair
+Label          Paired v5/v8 fixture
+Observations   3
+Variables      4
+
+              Alphabetic List of Variables and Attributes
+
+#  Variable  Type  Len  Format  Informat  Label
+4  AGE       Num     8                    Age
+2  LONGVARI  Num     8                    A label that runs well past the forty ch
+3  NOTE      Char  230                    Free text
+1  USUBJID   Char    5                    Unique Subject Identifier
+USUBJID=S-001 LONGVARIABLENAME=1.5 AGE=34 n=230
+USUBJID=S-002 LONGVARIABLENAME=. AGE=51 n=5
+USUBJID=S-003 LONGVARIABLENAME=-42 AGE=. n=1
+USUBJID=S-001 LONGVARI=1.5 AGE=34 n=230
+USUBJID=S-002 LONGVARI=. AGE=51 n=5
+USUBJID=S-003 LONGVARI=-42 AGE=. n=1
+
+                          The COMPARE Procedure
+  Comparison of b5 with a8
+
+  Data Set Summary
+    b5: 4 variables, 3 observations
+    a8: 4 variables, 3 observations
+
+  Variables Summary
+    Variables in common: 4
+    In b5 only: 0
+    In a8 only: 0
+
+  Observation Summary
+    Observations in common: 3
+    In b5 only: 0
+    In a8 only: 0
+
+  Values Comparison Summary
+    Variables compared: 4
+    Variables all equal: 4
+    Variables with unequal values: 0
+    Total unequal values: 0
+
+  NOTE: No unequal values were found. All values compared are exactly equal.
