@@ -99,11 +99,17 @@ fn diskPath(name: []const u8) ?[]const u8 {
     const lr = for (librefs) |lr| {
         if (eqi(lr.name, nm[0..dot])) break lr;
     } else return null;
-    // A libref pointed straight at a dataset FILE: every member maps to it
-    // (same rule as main's loadLibInputs).
-    if (sio.endsWithIgnoreCase(lr.dir, ".sas7bdat") or sio.endsWithIgnoreCase(lr.dir, ".xpt"))
-        return if (sio.fileExistsRaw(lr.dir)) lr.dir else null;
     const member = nm[dot + 1 ..];
+    // A libref pointed straight at a dataset FILE holds ONE member, served only
+    // under the name stamped in it (XPT descriptor) or the sas7bdat stem, the
+    // same rule as main's loadLibInputs (BUG-filelibrefmember). Without it,
+    // EXIST answered 1 for any member name while SET of that name failed.
+    if (sio.endsWithIgnoreCase(lr.dir, ".sas7bdat") or sio.endsWithIgnoreCase(lr.dir, ".xpt")) {
+        const bytes = sio.readFileRaw(arena(), lr.dir) orelse return null;
+        const held = sio.stampedMemberName(lr.dir, bytes);
+        const ok = eqi(member, held) or (member.len > 8 and held.len == 8 and eqi(member[0..8], held));
+        return if (ok) lr.dir else null;
+    }
     if (memberPath(lr.dir, member)) |p| return p;
     var mbuf: [32]u8 = undefined; // SAS member names are <= 32 chars
     if (member.len > mbuf.len) return null;
