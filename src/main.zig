@@ -36,10 +36,22 @@ pub fn main(init: std.process.Init) !void {
     // non-flag arg is the input `.sas`. `$SASAUTOS` is the fallback.
     var file: ?[]const u8 = null;
     var sasautos: ?[]const u8 = init.environ_map.get("SASAUTOS");
+    var log_path: ?[]const u8 = null;
     var ai: usize = 1;
     while (ai < args.len) : (ai += 1) {
         if (std.mem.eql(u8, args[ai], "--sasautos") and ai + 1 < args.len) {
             sasautos = args[ai + 1];
+            ai += 1;
+        } else if (std.mem.eql(u8, args[ai], "--log")) {
+            // `--log <file>`: the run's whole log goes to <file>, not to the two
+            // streams. Read here, applied below before the program is opened, so
+            // "cannot read" lands in the file too. A `--log` with no value is a
+            // usage error, never a silent run on the streams.
+            if (ai + 1 >= args.len) {
+                std.debug.print("opensas: --log needs a file\n", .{});
+                std.process.exit(2);
+            }
+            log_path = args[ai + 1];
             ai += 1;
         } else if (std.mem.eql(u8, args[ai], "--version") or std.mem.eql(u8, args[ai], "-V")) {
             // GH#10 ISS-versionflag: SHORT-CIRCUIT before the input file is even
@@ -58,9 +70,10 @@ pub fn main(init: std.process.Init) !void {
         }
     }
     if (file == null) {
-        std.debug.print("usage: opensas [--sasautos <dir>] <file.sas>\n", .{});
+        std.debug.print("usage: opensas [--sasautos <dir>] [--log <file>] <file.sas>\n", .{});
         return;
     }
+    if (log_path) |lp| redirectLog(io, lp);
     sas.macro.setAutocallDir(sasautos);
 
     const src = Io.Dir.cwd().readFileAlloc(io, file.?, a, max_file) catch |e| {
@@ -92,6 +105,37 @@ pub fn main(init: std.process.Init) !void {
 
     const rc = processExitCode(&diags);
     if (rc != 0) std.process.exit(rc);
+}
+
+/// `--log <file>`: point stdout AND stderr at one file, created or truncated.
+///
+/// Why the descriptors and not a writer: the log is written from many places.
+/// `out` is flushed to stdout at the end, diagnostics are rendered to stderr at
+/// the end, and a fail-loud prints to stderr the moment it happens. Replacing
+/// descriptors 1 and 2 catches all of them, in write order, and keeps what a
+/// run wrote before it was killed. One open file description is shared, so the
+/// two streams advance one offset and never overwrite each other (the reason
+/// `stdoutWriter` is a streaming writer).
+///
+/// For a caller that cannot redirect: a container image that holds this binary
+/// and no shell. A log file that cannot be opened is exit 2 with the reason on
+/// the original stderr; the program is not run without its log.
+fn redirectLog(io: Io, path: []const u8) void {
+    const f = Io.Dir.cwd().createFile(io, path, .{}) catch |e| {
+        std.debug.print("opensas: cannot open the log {s} ({t})\n", .{ path, e });
+        std.process.exit(2);
+    };
+    if (!dup2Ok(f.handle, 1) or !dup2Ok(f.handle, 2)) {
+        std.debug.print("opensas: cannot redirect the log to {s}\n", .{path});
+        std.process.exit(2);
+    }
+}
+
+fn dup2Ok(old: std.posix.fd_t, new: std.posix.fd_t) bool {
+    const builtin = @import("builtin");
+    if (builtin.link_libc) return std.c.dup2(old, new) >= 0;
+    if (builtin.os.tag == .linux) return std.os.linux.errno(std.os.linux.dup2(old, new)) == .SUCCESS;
+    return false;
 }
 
 /// THE exit code for a finished run — D-009, including its ABORT override.
