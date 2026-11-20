@@ -177,8 +177,14 @@ pub fn endsWithIgnoreCase(s: []const u8, suffix: []const u8) bool {
 /// (80), then a descriptor record whose bytes 8..16 are the ≤8-char
 /// blank-padded member name (xport.zig writes it).
 pub fn xptStampedMember(bytes: []const u8) ?[]const u8 {
-    if (bytes.len >= 416 and std.mem.startsWith(u8, bytes[240..], "HEADER RECORD*******MEMBER")) {
+    // v5 stamps 8 chars at 408..416; v8 (MEMBV8) widens the field to 32 chars,
+    // 408..440, in the same first descriptor record.
+    if (bytes.len >= 416 and std.mem.startsWith(u8, bytes[240..], "HEADER RECORD*******MEMBER  ")) {
         const mem = std.mem.trimEnd(u8, bytes[408..416], " ");
+        if (mem.len > 0) return mem;
+    }
+    if (bytes.len >= 440 and std.mem.startsWith(u8, bytes[240..], "HEADER RECORD*******MEMBV8  ")) {
+        const mem = std.mem.trimEnd(u8, bytes[408..440], " ");
         if (mem.len > 0) return mem;
     }
     return null;

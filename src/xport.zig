@@ -1,4 +1,4 @@
-//! XPORT v5 (`.xpt`) reader — the openly-documented SAS Transport file format
+//! XPORT v5/v8 (`.xpt`) reader — the openly-documented SAS Transport file format
 //! (TS-140). A stream of 80-byte header records framing byte-packed descriptor
 //! and observation data:
 //!
@@ -19,8 +19,16 @@
 //!   ntype 0 | nlng 4 | nname 8 | nlabel 16 | nform 56, nfl 64, nfd 66 |
 //!   niform 72, nifl 80, nifd 82 | npos 84   (TS-140 v5 layout)
 //! Char values are ASCII, blank-padded; numeric values are 8-byte IBM
-//! System/360 hex floating point. Only the v5 single-member layout is handled
-//! (the SDTM `.xpt` files here are one member each).
+//! System/360 hex floating point. The first member is read (the SDTM `.xpt`
+//! files here are one member each).
+//!
+//! Version 8 ("The SAS XPORT Version 8 format", the TS-140 v8 notes) has the
+//! same frame with v8 header names (LIBV8, MEMBV8, DSCPTV8, NAMSTV8, OBSV8), a
+//! 32-char member name in the first descriptor record, the full variable name
+//! at NAMESTR 88..120 (label length at 120..122), an optional LABELV8/LABELV9
+//! section after the NAMESTRs for labels over 40 and names/formats over 8, and
+//! the observation count in the OBSV8 header. `read` takes both; `write` still
+//! emits v5.
 
 const std = @import("std");
 const Dataset = @import("dataset.zig").Dataset;
@@ -45,19 +53,27 @@ const Var = struct {
 /// ERROR is reported first) — main's write path switches on exactly these two.
 pub const Error = error{ NotXport, OutOfMemory };
 
-/// Parse an XPORT v5 file into a Dataset named `name`.
+/// Parse an XPORT v5 or v8 file into a Dataset named `name` (its first member).
 pub fn read(a: std.mem.Allocator, bytes: []const u8, name: []const u8) Error!*Dataset {
-    if (bytes.len < 640 or !std.mem.startsWith(u8, bytes, "HEADER RECORD*******LIBRARY"))
+    if (bytes.len < 640) return error.NotXport;
+    // The LIBRARY header names the version: `LIBRARY ` (v5) or `LIBV8   ` (v8,
+    // also what SAS 9 writes with the %LOC2XPT/XPORT V8 engine). Every later
+    // section header then carries the matching v8 spelling.
+    const v8 = if (std.mem.startsWith(u8, bytes, "HEADER RECORD*******LIBRARY HEADER"))
+        false
+    else if (std.mem.startsWith(u8, bytes, "HEADER RECORD*******LIBV8   HEADER"))
+        true
+    else
         return error.NotXport;
     var p: usize = 240; // LIBRARY header + 2 real header records
-    if (!std.mem.startsWith(u8, bytes[p..], "HEADER RECORD*******MEMBER"))
-        return error.NotXport;
+    if (!header(bytes, p, if (v8) "MEMBV8  " else "MEMBER  ")) return error.NotXport;
     const namestr_size = parseNum(bytes[p + 74 .. p + 78]) orelse 140;
-    // data set label: bytes 32..72 of the second descriptor record
+    // data set label: bytes 32..72 of the second descriptor record (same in v8;
+    // v8 widens only the member NAME, in the first record)
     const ds_label = if (bytes.len >= p + 240 + 72) trimTrail(bytes[p + 240 + 32 .. p + 240 + 72]) else "";
+    if (!header(bytes, p + 80, if (v8) "DSCPTV8 " else "DSCRPTR ")) return error.NotXport;
     p += 80 + 80 + 160; // MEMBER header, DSCRPTR header, 2 descriptor records
-    if (!std.mem.startsWith(u8, bytes[p..], "HEADER RECORD*******NAMESTR"))
-        return error.NotXport;
+    if (!header(bytes, p, if (v8) "NAMSTV8 " else "NAMESTR ")) return error.NotXport;
     const nvars = parseNum(bytes[p + 54 .. p + 58]) orelse return error.NotXport;
     p += 80;
 
@@ -81,9 +97,65 @@ pub fn read(a: std.mem.Allocator, bytes: []const u8, name: []const u8) Error!*Da
             .nifl = be16(ns[80..82]),
             .nifd = be16(ns[82..84]),
         };
+        // v8 NAMESTR: the full name (up to 32) at 88..120. A label over 40 and
+        // format names over 8 come only from the LABELV8/LABELV9 section below.
+        if (v8 and namestr_size >= 120) {
+            const long = trimTrail(ns[88..120]);
+            if (long.len > 0) vars[i].name = long;
+        }
         obs_len += vars[i].len;
     }
     p = roundUp(p + nvars * namestr_size, 80); // NAMESTR section padded to 80
+
+    // v8 only: an optional LABELV8 (name + label) or LABELV9 (name + label +
+    // format + informat) section, present when some name is over 8, a label
+    // over 40, or a format name over 8. Header bytes 48.. hold the record count;
+    // each record is 2-byte big-endian fields (1-based variable number, then the
+    // lengths) followed by the texts, records packed back to back, the section
+    // padded to 80.
+    if (v8 and p + 80 <= bytes.len and (header(bytes, p, "LABELV8 ") or header(bytes, p, "LABELV9 "))) {
+        const v9 = header(bytes, p, "LABELV9 ");
+        const count = parseNum(bytes[p + 48 .. p + 80]) orelse return error.NotXport;
+        var q = p + 80;
+        const nfields: usize = if (v9) 5 else 3;
+        for (0..count) |_| {
+            if (q + 2 * nfields > bytes.len) return error.NotXport;
+            const varnum = be16(bytes[q..][0..2]);
+            const name_len = be16(bytes[q + 2 ..][0..2]);
+            const label_len = be16(bytes[q + 4 ..][0..2]);
+            const fmt_len: usize = if (v9) be16(bytes[q + 6 ..][0..2]) else 0;
+            const ifmt_len: usize = if (v9) be16(bytes[q + 8 ..][0..2]) else 0;
+            q += 2 * nfields;
+            if (q + name_len + label_len + fmt_len + ifmt_len > bytes.len) return error.NotXport;
+            if (varnum == 0 or varnum > nvars) return error.NotXport;
+            const v = &vars[varnum - 1];
+            const nm = trimTrail(bytes[q .. q + name_len]);
+            q += name_len;
+            const lb = trimTrail(bytes[q .. q + label_len]);
+            q += label_len;
+            if (nm.len > 0) v.name = nm;
+            v.label = lb;
+            if (v9) {
+                const fm = trimTrail(bytes[q .. q + fmt_len]);
+                q += fmt_len;
+                const im = trimTrail(bytes[q .. q + ifmt_len]);
+                q += ifmt_len;
+                if (fm.len > 0) v.form = fm;
+                if (im.len > 0) v.iform = im;
+            }
+        }
+        p = roundUp(q, 80);
+    }
+    if (!header(bytes, p, if (v8) "OBSV8   " else "OBS     ")) return error.NotXport;
+    // v8 may state the observation count in the OBS header (bytes 48..80); v5
+    // does not. A writer may also leave that field blank or all zeros, so only
+    // a positive count is trusted. That count is exact, which also settles the
+    // all-blank-observation ambiguity. Zero or absent falls back to the v5 scan,
+    // which still finds a genuinely empty member empty, and never drops rows.
+    const nobs: ?usize = if (v8) blk: {
+        const n = parseNum(bytes[p + 48 .. p + 80]) orelse break :blk null;
+        break :blk if (n > 0) n else null;
+    } else null;
     p += 80; // OBS header
 
     const ds = try a.create(Dataset);
@@ -117,12 +189,14 @@ pub fn read(a: std.mem.Allocator, bytes: []const u8, name: []const u8) Error!*Da
         }
     }
     // Observations to the member boundary; the final all-blank record is
-    // 80-boundary padding.
+    // 80-boundary padding. A stated v8 count reads exactly that many.
     var o = p;
     var broke_blank = false;
+    var nread: usize = 0;
     while (o + obs_len <= obs_end) : (o += obs_len) {
+        if (nobs) |n| if (nread == n) break;
         const rec = bytes[o .. o + obs_len];
-        if (allBlank(rec)) {
+        if (nobs == null and allBlank(rec)) {
             broke_blank = true;
             break;
         }
@@ -134,6 +208,14 @@ pub fn read(a: std.mem.Allocator, bytes: []const u8, name: []const u8) Error!*Da
             col += v.len;
         }
         try ds.rows.append(a, cells);
+        nread += 1;
+    }
+    // A stated count the bytes cannot hold is a truncated file. (A count that
+    // overstates by less than the final padding is undetectable: the padding
+    // decodes as rows.)
+    if (nobs) |n| {
+        if (nread != n) return error.NotXport;
+        return ds;
     }
     // GAP-xportio-low F13: a non-blank tail after the last full observation
     // is a TRUNCATED/damaged file — v5 carries no observation count, so a cut
@@ -147,6 +229,13 @@ pub fn read(a: std.mem.Allocator, bytes: []const u8, name: []const u8) Error!*Da
     if (!broke_blank and o < obs_end and !allBlank(bytes[o..obs_end]))
         return error.NotXport;
     return ds;
+}
+
+/// Whether the 80-byte record at `p` is the section header `kind` (8 chars,
+/// blank padded, e.g. "MEMBER  ", "NAMSTV8 ").
+fn header(bytes: []const u8, p: usize, kind: []const u8) bool {
+    if (p + 28 > bytes.len) return false;
+    return std.mem.startsWith(u8, bytes[p..], "HEADER RECORD*******") and std.mem.eql(u8, bytes[p + 20 .. p + 28], kind);
 }
 
 /// Serialize a Dataset to XPORT v5 bytes — the inverse of `read`, byte-compatible
@@ -800,4 +889,83 @@ test "XPORT round-trip keeps the data set label; over 40 chars warns and truncat
     const back3 = try read(a, try writeReport(a, &long, &diags), "dm");
     try t.expectEqualStrings("A data set label that is longer than for", back3.label.?);
     try t.expect(diags.list.items.len == 1);
+}
+
+/// Re-frame a v5 `write` as v8: rename the five section headers and, when
+/// `labels` is given, insert it (a LABELV8/LABELV9 section, already padded to
+/// 80) right before the OBS header. Test-only: the writer emits v5.
+fn asV8(a: std.mem.Allocator, v5: []const u8, labels: []const u8) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var p: usize = 0;
+    while (p < v5.len) : (p += 80) {
+        var rec: [80]u8 = undefined;
+        @memcpy(&rec, v5[p .. p + 80]);
+        if (std.mem.startsWith(u8, &rec, "HEADER RECORD*******")) {
+            const pairs = [_][2][]const u8{ .{ "LIBRARY ", "LIBV8   " }, .{ "MEMBER  ", "MEMBV8  " }, .{ "DSCRPTR ", "DSCPTV8 " }, .{ "NAMESTR ", "NAMSTV8 " }, .{ "OBS     ", "OBSV8   " } };
+            for (pairs) |pr| if (std.mem.eql(u8, rec[20..28], pr[0])) {
+                @memcpy(rec[20..28], pr[1]);
+                if (std.mem.eql(u8, pr[0], "OBS     ")) try out.appendSlice(a, labels);
+            };
+        }
+        try out.appendSlice(a, &rec);
+    }
+    return out.items;
+}
+
+test "XPORT v8 read: LABELV9 restores a long name, a label over 40 and long format names" {
+    const t = std.testing;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var ds = Dataset.init(a, "lv9");
+    _ = try ds.addColumn("short", .num);
+    try ds.appendRow(&.{.{ .num = 3.5 }});
+    try ds.appendRow(&.{.{ .num = -1 }});
+    const v5 = try write(a, &ds);
+
+    // One LABELV9 record (TS-140 v8 notes): var 1, name 18, label 50, format
+    // 11, informat 10 — then the four texts, padded to 80.
+    const name = "A_NAME_OVER_EIGHT_";
+    const label = "L" ** 50;
+    const fmt = "E8601DTFMT_";
+    const ifmt = "ANYDTDTM_X";
+    var sec: std.ArrayList(u8) = .empty;
+    try sec.appendSlice(a, "HEADER RECORD*******LABELV9 HEADER RECORD!!!!!!!1" ++ " " ** 31);
+    for ([_]u16{ 1, name.len, label.len, fmt.len, ifmt.len }) |v| try sec.appendSlice(a, &.{ @intCast(v >> 8), @truncate(v) });
+    try sec.appendSlice(a, name ++ label ++ fmt ++ ifmt);
+    while (sec.items.len % 80 != 0) try sec.append(a, ' ');
+
+    const back = try read(a, try asV8(a, v5, sec.items), "lv9");
+    const c = back.columns.items[0];
+    try t.expectEqualStrings(name, c.name);
+    try t.expectEqualStrings(label, c.label.?);
+    try t.expect(std.mem.startsWith(u8, c.format.?, fmt));
+    try t.expect(std.mem.startsWith(u8, c.informat.?, ifmt));
+    // The OBSV8 count is zeros here (the v5 writer's header), so the reader
+    // falls back to the v5 scan and still returns both rows.
+    try t.expectEqual(@as(usize, 2), back.rows.items.len);
+    try t.expectEqual(@as(f64, 3.5), back.rows.items[0][0].num);
+}
+
+test "XPORT v8 read: a stated OBSV8 count is exact, and a short file is LOUD" {
+    const t = std.testing;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var ds = Dataset.init(a, "cnt");
+    _ = try ds.addColumn("x", .num);
+    for (0..3) |i| try ds.appendRow(&.{.{ .num = @floatFromInt(i + 1) }});
+    const v8 = try asV8(a, try write(a, &ds), "");
+    // stamp "3" into the OBSV8 header's count field (bytes 48..80)
+    const obs_hdr = std.mem.indexOf(u8, v8, "HEADER RECORD*******OBSV8   ").?;
+    @memcpy(v8[obs_hdr + 48 .. obs_hdr + 80], "              3                 ");
+    const back = try read(a, v8, "cnt");
+    try t.expectEqual(@as(usize, 3), back.rows.items.len);
+    // A count the bytes cannot hold is a damaged file, never fewer rows. An
+    // overstated count that still fits inside the final 80-byte padding is
+    // not detectable from the bytes.
+    @memcpy(v8[obs_hdr + 48 .. obs_hdr + 80], "            100                 ");
+    try t.expectError(error.NotXport, read(a, v8, "cnt"));
 }
