@@ -6,7 +6,7 @@ tracker: `[x]` = implemented in opensas with a fixture; `[ ]` = TODO.
 When a dev implements a function they read ONLY that function's Dictionary page
 for exact semantics, add a corpus fixture, and tick it here.
 
-**Coverage: 468/468 feasible (100%) — 147 marked [~] N/A (Git/SOAP/MODULE/file-I/O/memory/OS); 615 total documented**
+**Coverage: 469/469 feasible (100%) — 146 marked [~] N/A (Git/SOAP/MODULE/file-I/O/memory/OS); 615 total documented**
 
 Truly out-of-scope for a CSV/in-memory interpreter (memory PEEK/POKE, external
 DB/file engines, Git, GTL-only) may be marked `[~]` N/A with a one-line reason;
@@ -228,7 +228,7 @@ they don't block 100% of the *feasible* set.
 - [x] FETCHOBS
 - [~] FEXIST   (N/A: external file I/O)
 - [~] FGET   (N/A: external file I/O)
-- [~] FILEEXIST   (N/A: OS/engine external)
+- [x] FILEEXIST   (physical path, file or directory; fixture fileexist)
 - [~] FILENAME   (N/A: OS/engine external)
 - [~] FILEREF   (N/A: OS/engine external)
 - [x] FINANCE

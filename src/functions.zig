@@ -528,6 +528,20 @@ pub fn dispatch(ev: *eval.Evaluator, name: []const u8, args: []const Value) eval
         }
         return .{ .num = dsfns.exist(try toStr(ev, args[0])) };
     }
+    if (eqi(name, "fileexist")) {
+        // FILEEXIST(physical-name): 1 when the external file exists, else 0
+        // (Functions ref "FILEEXIST Function"; the UNIX and Windows companions
+        // add that a directory counts too). The name is a path, not a fileref,
+        // so no FILENAME store is involved. A relative path resolves against
+        // the process cwd, as INFILE and LIBNAME paths do here. Blanks around
+        // the name are dropped: a char variable carries its padding, and
+        // %SYSFUNC hands over the text after the comma verbatim. A blank name
+        // names no file → 0.
+        if (args.len != 1) return badArity(ev, name, "1", args.len);
+        const path = std.mem.trim(u8, try toStr(ev, args[0]), " ");
+        if (path.len == 0) return .{ .num = 0 };
+        return .{ .num = if (@import("io.zig").fileExistsRaw(path)) 1 else 0 };
+    }
     if (eqi(name, "pathname")) {
         // PATHNAME(ref[, type]): the OS path bound to a libref — our LIBNAME map,
         // via the dsfns libref binding (GAP-pathname). Blank for an unknown ref.
