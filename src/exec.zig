@@ -74,12 +74,13 @@ fn isHashMethod(name: []const u8) bool {
     return false;
 }
 
-/// Every CALL routine the SAS 9.4 Functions and CALL Routines reference names
-/// (its dictionary's `CALL <NAME> Routine` headings) — the closed set that
+/// Every CALL routine SAS 9.4 documents (the `CALL <NAME> Routine` dictionary
+/// headings of the Functions and CALL Routines reference, Fifth Edition, and of
+/// the NLS Reference Guide) — the closed set that
 /// splits "a routine we have not written" (gap, rc 2) from "the user misspelled
 /// one" (rc 1). Reaching the catch-all already means unimplemented, so this list
 /// needs no maintenance when a routine lands.
-fn isCallRoutine(name: []const u8) bool {
+pub fn isCallRoutine(name: []const u8) bool {
     inline for (.{
         "allcomb",   "allcombi",     "allperm",       "cats",    "catt",     "catx",
         "compcost",  "execute",      "graycode",      "is8601_convert",      "label",
@@ -92,6 +93,10 @@ fn isCallRoutine(name: []const u8) bool {
         "stdize",    "stream",       "streaminit",    "streamrewind",        "symput",
         "symputx",   "system",       "tanh",          "tso",     "vname",    "vnext",
         "wto",
+        // the LDAPS_* routines (Functions ref) and KSCANX (NLS ref)
+        "ldaps_add",   "ldaps_attrname", "ldaps_attrvalue", "ldaps_close", "ldaps_delete",
+        "ldaps_entry", "ldaps_free",     "ldaps_modify",    "ldaps_open",  "ldaps_search",
+        "ldaps_search_page", "ldaps_setoptions", "kscanx",
     }) |r| if (eqi(name, r)) return true;
     return false;
 }

@@ -1069,81 +1069,97 @@ pub fn dispatch(ev: *eval.Evaluator, name: []const u8, args: []const Value) eval
     return Value.missing;
 }
 
-/// Every function the SAS 9.4 Functions and CALL Routines reference names (its
-/// dictionary's `<NAME> Function` headings, as `docs/sas-functions.md` lists
-/// them; CALL routines are exec.isCallRoutine's). The closed set that tells a
-/// function we have not written (gap) from a misspelled one. Reaching the
-/// catch-all already means unimplemented, so this list needs no maintenance
-/// when a function lands. Sorted, lowercase.
+/// Every DATA step function SAS 9.4 documents, as the dictionary headings
+/// (`<NAME> Function`) of four books: *SAS 9.4 Functions and CALL Routines:
+/// Reference, Fifth Edition* (564), *SAS 9.4 National Language Support (NLS):
+/// Reference Guide, Fifth Edition* (the K-functions, NLDATE/NLTIME, TZONE*,
+/// UNICODE* …), *SAS 9.4 System Options: Reference, Fifth Edition* (GETOPTION)
+/// and *SAS 9.4 Companion for UNIX Environments* (TSLVL). CALL routines are
+/// exec.isCallRoutine's. The closed set that tells a function we have not
+/// written (gap) from a misspelled one. Reaching the catch-all already means
+/// unimplemented, so a function landing needs no edit here.
+/// `docs/sas-functions.md` lists the same names; the test below fails when an
+/// entry there is missing here. Sorted, lowercase.
 const sas_function_names = [_][]const u8{
-    "abs", "addr", "addrlong", "airy", "allcomb", "allperm", "anyalnum", "anyalpha", "anycntrl",
-    "anydigit", "anyfirst", "anygraph", "anylower", "anyname", "anyprint", "anypunct", "anyspace",
-    "anyupper", "anyxdigit", "arcos", "arcosh", "arsin", "arsinh", "artanh", "atan", "atan2",
-    "attrc", "attrn", "band", "beta", "betainv", "blackclprc", "blackptprc", "blkshclprc",
-    "blkshptprc", "blshift", "bnot", "bor", "brshift", "bxor", "byte", "cat", "catq", "cats",
-    "catt", "catx", "cdf", "ceil", "ceilz", "cexist", "char", "choosec", "choosen", "cinv", "close",
-    "cmiss", "cnonct", "coalesce", "coalescec", "collate", "comb", "compare", "compbl", "compfuzz",
-    "compged", "complev", "compound", "compress", "compsrv_oval", "compsrv_unquote2", "constant",
-    "convx", "convxp", "cos", "cosh", "cot", "count", "countc", "countw", "csc", "css", "cumipmt",
-    "cumprinc", "curobs", "cv", "daccdb", "daccdbsl", "daccsl", "daccsyd", "dacctab", "dairy",
-    "datdif", "date", "datejul", "datepart", "datetime", "day", "dclose", "dcreate", "depdb",
-    "depdbsl", "depsl", "depsyd", "deptab", "dequote", "deviance", "dhms", "dif", "digamma", "dim",
-    "dinfo", "divide", "dlgcdir", "dnum", "dopen", "doptname", "doptnum", "dosubl", "dread",
-    "dropnote", "dsname", "dsncatlgd", "dur", "durp", "effrate", "envlen", "erf", "erfc", "euclid",
-    "exist", "exp", "fact", "fappend", "fclose", "fcol", "fcopy", "fdelete", "fetch", "fetchobs",
-    "fexist", "fget", "fileexist", "filename", "fileref", "finance", "find", "findc", "findw",
-    "finfo", "finv", "fipname", "fipnamel", "fipstate", "first", "floor", "floorz", "fmtinfo",
-    "fnonct", "fnote", "fopen", "foptname", "foptnum", "fpoint", "fpos", "fput", "fread", "frewind",
-    "frlen", "fsep", "fuzz", "fwrite", "gaminv", "gamma", "garkhclprc", "garkhptprc", "gcd",
-    "geodist", "geomean", "geomeanz", "getvarc", "getvarn", "git_branch_chkout",
-    "git_branch_delete", "git_branch_merge", "git_branch_new", "git_clone", "git_commit",
-    "git_commit_free", "git_commit_get", "git_commit_log", "git_delete_repo", "git_diff",
-    "git_diff_file_idx", "git_diff_free", "git_diff_get", "git_diff_to_file", "git_fetch",
-    "git_index_add", "git_index_remove", "git_init_repo", "git_pull", "git_push", "git_rebase",
-    "git_rebase_op", "git_reset", "git_reset_file", "git_set_url", "git_stash", "git_stash_apply",
-    "git_stash_drop", "git_stash_pop", "git_status", "git_status_free", "git_status_get",
-    "git_version", "gitfn_clone", "gitfn_co_branch", "gitfn_commit", "gitfn_commit_get",
-    "gitfn_commit_log", "gitfn_commitfree", "gitfn_del_branch", "gitfn_del_repo", "gitfn_diff",
-    "gitfn_diff_free", "gitfn_diff_get", "gitfn_diff_idx_f", "gitfn_idx_add", "gitfn_idx_remove",
-    "gitfn_mrg_branch", "gitfn_new_branch", "gitfn_pull", "gitfn_push", "gitfn_reset",
-    "gitfn_reset_file", "gitfn_status", "gitfn_status_get", "gitfn_statusfree", "gitfn_version",
-    "graycode", "harmean", "harmeanz", "hashing", "hashing_file", "hashing_hmac",
-    "hashing_hmac_file", "hashing_hmac_init", "hashing_init", "hashing_part", "hashing_term",
-    "hbound", "hms", "holiday", "holidayck", "holidaycount", "holidayname", "holidaynx",
-    "holidayny", "holidaytest", "hour", "htmldecode", "htmlencode", "ibessel", "ifc", "ifn",
-    "index", "indexc", "indexw", "input", "inputc", "inputn", "int", "intcindex", "intck",
-    "intcycle", "intfit", "intfmt", "intget", "intindex", "intnest", "intnx", "intrr", "intseas",
-    "intshift", "inttest", "intz", "iorcmsg", "ipmt", "iqr", "irr", "jbessel", "jsonpp", "juldate",
-    "juldate7", "kurtosis", "lag", "largest", "lbound", "lcm", "lcomb", "left", "length", "lengthc",
-    "lengthm", "lengthn", "lexcomb", "lexcombi", "lexperk", "lexperm", "lfact", "lgamma", "libname",
-    "libref", "log", "log10", "log1px", "log2", "logbeta", "logcdf", "logistic", "logpdf", "logsdf",
-    "lowcase", "lperm", "lpnorm", "mad", "margrclprc", "margrptprc", "max", "md5", "mdy", "mean",
-    "median", "min", "minute", "missing", "mod", "modexist", "module", "modulec", "modulen", "modz",
-    "month", "mopen", "mort", "msplint", "mvalid", "n", "netpv", "nliteral", "nmiss", "nomrate",
-    "normal", "notalnum", "notalpha", "notcntrl", "notdigit", "note", "notfirst", "notgraph",
-    "notlower", "notname", "notprint", "notpunct", "notspace", "notupper", "notxdigit", "npv",
-    "nvalid", "nwkdom", "open", "ordinal", "pathname", "pctl", "pdf", "peek", "peekc", "peekclong",
-    "peeklong", "perm", "pmt", "point", "poisson", "ppmt", "probbeta", "probbnml", "probbnrm",
-    "probchi", "probf", "probgam", "probhypr", "probit", "probmc", "probmed", "probnegb",
-    "probnorm", "probt", "propcase", "prxchange", "prxmatch", "prxparen", "prxparse", "prxposn",
-    "ptrlongadd", "put", "putc", "putn", "pvp", "qtr", "quantile", "quote", "ranbin", "rancau",
-    "rand", "ranexp", "rangam", "range", "rank", "rannor", "ranpoi", "rantbl", "rantri", "ranuni",
-    "rename", "repeat", "resolve", "reverse", "rewind", "right", "rms", "round", "rounde", "roundz",
-    "saving", "savings", "scan", "sdf", "sec", "second", "sha256", "sha256hex", "sha256hmachex",
-    "sign", "sin", "sinh", "skewness", "sleep", "smallest", "soapweb", "soapwebmeta",
-    "soapwipservice", "soapwipsrs", "soapws", "soapwsmeta", "sort", "soundex", "spedis", "sqrt",
-    "squantile", "std", "stderr", "stfips", "stname", "stnamel", "strip", "subpad", "substrn",
-    "sum", "sumabs", "symexist", "symget", "symglobl", "symlocal", "sysexist", "sysget", "sysmsg",
-    "sysparm", "sysprocessid", "sysprocessname", "sysprod", "sysrc", "system", "tan", "tanh",
-    "time", "timepart", "timevalue", "tinv", "tnonct", "today", "translate", "transtrn", "tranwrd",
-    "trigamma", "trim", "trimn", "trunc", "tso", "typeof", "tzoneid", "tzonename", "tzoneoff",
-    "tzones2u", "tzoneu2s", "uniform", "upcase", "urldecode", "urlencode", "uss", "uuidgen", "var",
-    "varfmt", "varinfmt", "varlabel", "varlen", "varname", "varnum", "varray", "varrayx", "vartype",
-    "verify", "vformat", "vformatd", "vformatdx", "vformatn", "vformatnx", "vformatw", "vformatwx",
-    "vformatx", "vinarray", "vinarrayx", "vinformat", "vinformatd", "vinformatdx", "vinformatn",
-    "vinformatnx", "vinformatw", "vinformatwx", "vinformatx", "vlabel", "vlabelx", "vlength",
-    "vlengthx", "vname", "vnamex", "vtype", "vtypex", "vvalue", "vvaluex", "week", "weekday",
-    "whichc", "whichn", "wto", "year", "yieldp", "yrdif",
+    "abs", "addr", "addrlong", "airy", "allcomb", "allperm", "anorm420", "anyalnum", "anyalpha",
+    "anycntrl", "anydigit", "anyfirst", "anygraph", "anylower", "anyname", "anyprint", "anypunct",
+    "anyspace", "anyupper", "anyxdigit", "arcos", "arcosh", "arsin", "arsinh", "artanh", "atan",
+    "atan2", "attrc", "attrn", "band", "basechar", "beta", "betainv", "blackclprc", "blackptprc",
+    "blkshclprc", "blkshptprc", "blshift", "bnot", "bor", "brshift", "bxor", "byte", "cat", "catq",
+    "cats", "catt", "catx", "cdf", "ceil", "ceilz", "cexist", "char", "choosec", "choosen", "cinv",
+    "close", "cmiss", "cnonct", "coalesce", "coalescec", "collate", "comb", "compare", "compbl",
+    "compfuzz", "compged", "complev", "compound", "compress", "compsrv_oval", "compsrv_unquote2",
+    "constant", "convx", "convxp", "cos", "cosh", "cot", "count", "countc", "countw", "csc", "css",
+    "cumipmt", "cumprinc", "curobs", "cv", "daccdb", "daccdbsl", "daccsl", "daccsyd", "dacctab",
+    "dairy", "datdif", "date", "datejul", "datepart", "datetime", "day", "dclose", "dcreate",
+    "depdb", "depdbsl", "depsl", "depsyd", "deptab", "dequote", "deviance", "dhms", "dif",
+    "digamma", "dim", "dinfo", "divide", "dlgcdir", "dnum", "dopen", "doptname", "doptnum",
+    "dosubl", "dread", "dropnote", "dsname", "dsncatlgd", "dur", "durp", "effrate", "encodcompat",
+    "encodisvalid", "envlen", "erf", "erfc", "euclid", "eurocurr", "exist", "exp", "fact",
+    "fappend", "fclose", "fcol", "fcopy", "fdelete", "fetch", "fetchobs", "fexist", "fget",
+    "fileexist", "filename", "fileref", "finance", "find", "findc", "findw", "finfo", "finv",
+    "fipname", "fipnamel", "fipstate", "first", "floor", "floorz", "fmtinfo", "fnonct", "fnote",
+    "fopen", "foptname", "foptnum", "fpoint", "fpos", "fput", "fread", "frewind", "frlen", "fsep",
+    "fuzz", "fwrite", "gaminv", "gamma", "garkhclprc", "garkhptprc", "gcd", "geodist", "geomean",
+    "geomeanz", "getlocenv", "getoption", "getpxlanguage", "getpxlocale", "getpxregion", "getvarc",
+    "getvarn", "git_branch_chkout", "git_branch_delete", "git_branch_merge", "git_branch_new",
+    "git_clone", "git_commit", "git_commit_free", "git_commit_get", "git_commit_log",
+    "git_delete_repo", "git_diff", "git_diff_file_idx", "git_diff_free", "git_diff_get",
+    "git_diff_to_file", "git_fetch", "git_index_add", "git_index_remove", "git_init_repo",
+    "git_pull", "git_push", "git_rebase", "git_rebase_op", "git_reset", "git_reset_file",
+    "git_set_url", "git_stash", "git_stash_apply", "git_stash_drop", "git_stash_pop", "git_status",
+    "git_status_free", "git_status_get", "git_version", "gitfn_clone", "gitfn_co_branch",
+    "gitfn_commit", "gitfn_commit_get", "gitfn_commit_log", "gitfn_commitfree", "gitfn_del_branch",
+    "gitfn_del_repo", "gitfn_diff", "gitfn_diff_free", "gitfn_diff_get", "gitfn_diff_idx_f",
+    "gitfn_idx_add", "gitfn_idx_remove", "gitfn_mrg_branch", "gitfn_new_branch", "gitfn_pull",
+    "gitfn_push", "gitfn_reset", "gitfn_reset_file", "gitfn_status", "gitfn_status_get",
+    "gitfn_statusfree", "gitfn_version", "graycode", "harmean", "harmeanz", "hashing",
+    "hashing_file", "hashing_hmac", "hashing_hmac_file", "hashing_hmac_init", "hashing_init",
+    "hashing_part", "hashing_term", "hbound", "hms", "holiday", "holidayck", "holidaycount",
+    "holidayname", "holidaynx", "holidayny", "holidaytest", "hour", "htmldecode", "htmlencode",
+    "ibessel", "ifc", "ifn", "index", "indexc", "indexw", "input", "inputc", "inputn", "int",
+    "intcindex", "intck", "intcycle", "intfit", "intfmt", "intget", "intindex", "intnest", "intnx",
+    "intrr", "intseas", "intshift", "inttest", "intz", "iorcmsg", "ipmt", "iqr", "irr", "jbessel",
+    "jsonpp", "juldate", "juldate7", "kcharlist", "kcompare", "kcompress", "kcount", "kcountc",
+    "kcountw", "kcountx", "kcvt", "kfind", "kfindc", "kfindw", "kindex", "kindexb", "kindexc",
+    "kindexcb", "kleft", "klength", "klowcase", "kpropcase", "kpropchar", "kpropdata", "kreverse",
+    "kright", "kscan", "kscanx", "kstrcat", "kstrip", "ksubstr", "ksubstrb", "ksubstrn",
+    "ktranslate", "ktrim", "ktruncate", "kupcase", "kupdate", "kupdateb", "kupdates", "kurtosis",
+    "kverify", "kverifyb", "lag", "largest", "lbound", "lcm", "lcomb", "left", "length", "lengthc",
+    "lengthm", "lengthn", "lexcomb", "lexcombi", "lexperk", "lexperm", "lfact", "lgamma",
+    "libname", "libref", "log", "log10", "log1px", "log2", "logbeta", "logcdf", "logistic",
+    "logpdf", "logsdf", "lowcase", "lperm", "lpnorm", "mad", "margrclprc", "margrptprc", "max",
+    "md5", "mdy", "mean", "median", "min", "minute", "missing", "mod", "modexist", "module",
+    "modulec", "modulen", "modz", "month", "mopen", "mort", "msplint", "mvalid", "n", "netpv",
+    "nldate", "nldatm", "nliteral", "nltime", "nmiss", "nomrate", "normal", "notalnum", "notalpha",
+    "notcntrl", "notdigit", "note", "notfirst", "notgraph", "notlower", "notname", "notprint",
+    "notpunct", "notspace", "notupper", "notxdigit", "npv", "nvalid", "nwkdom", "open", "ordinal",
+    "pathname", "pctl", "pdf", "peek", "peekc", "peekclong", "peeklong", "perm", "pmt", "point",
+    "poisson", "ppmt", "probbeta", "probbnml", "probbnrm", "probchi", "probf", "probgam",
+    "probhypr", "probit", "probmc", "probmed", "probnegb", "probnorm", "probt", "propcase",
+    "prxchange", "prxmatch", "prxparen", "prxparse", "prxposn", "ptrlongadd", "put", "putc",
+    "putn", "pvp", "qtr", "quantile", "quote", "ranbin", "rancau", "rand", "ranexp", "rangam",
+    "range", "rank", "rannor", "ranpoi", "rantbl", "rantri", "ranuni", "rename", "repeat",
+    "resolve", "reverse", "rewind", "right", "rms", "round", "rounde", "roundz", "sasmsg",
+    "sasmsgl", "saving", "savings", "scan", "sdf", "sec", "second", "setlocale", "sha256",
+    "sha256hex", "sha256hmachex", "sign", "sin", "sinh", "skewness", "sleep", "smallest",
+    "soapweb", "soapwebmeta", "soapwipservice", "soapwipsrs", "soapws", "soapwsmeta", "sort",
+    "sortkey", "soundex", "spedis", "sqrt", "squantile", "std", "stderr", "stfips", "stname",
+    "stnamel", "strip", "subpad", "substrn", "sum", "sumabs", "symexist", "symget", "symglobl",
+    "symlocal", "sysexist", "sysget", "sysmsg", "sysparm", "sysprocessid", "sysprocessname",
+    "sysprod", "sysrc", "system", "tan", "tanh", "time", "timepart", "timevalue", "tinv", "tnonct",
+    "today", "translate", "transtrn", "trantab", "tranwrd", "trigamma", "trim", "trimn", "trunc",
+    "tslvl", "tso", "typeof", "tzonedstname", "tzonedstoff", "tzoneid", "tzonename", "tzoneoff",
+    "tzones2u", "tzonesttname", "tzonesttoff", "tzoneu2s", "unicode", "unicodec", "unicodelen",
+    "unicodewidth", "uniform", "upcase", "urldecode", "urlencode", "uss", "uuidgen", "var",
+    "varfmt", "varinfmt", "varlabel", "varlen", "varname", "varnum", "varray", "varrayx",
+    "vartranscode", "vartype", "verify", "vformat", "vformatd", "vformatdx", "vformatn",
+    "vformatnx", "vformatw", "vformatwx", "vformatx", "vinarray", "vinarrayx", "vinformat",
+    "vinformatd", "vinformatdx", "vinformatn", "vinformatnx", "vinformatw", "vinformatwx",
+    "vinformatx", "vlabel", "vlabelx", "vlength", "vlengthx", "vname", "vnamex", "vtranscode",
+    "vtranscodex", "vtype", "vtypex", "vvalue", "vvaluex", "week", "weekday", "whichc", "whichn",
+    "wto", "year", "yieldp", "yrdif", "yyq", "zipcity", "zipcitydistance", "zipfips", "zipname",
+    "zipnamel", "zipstate",
 };
 
 pub fn isSasFunction(name: []const u8) bool {
@@ -6269,6 +6285,42 @@ test "coercion across the num/char boundary" {
     try t.expectEqual(@as(f64, 14), (try dispatch(&e, "input", &.{ strV("1960-01-15"), strV("yymmdd10.") })).num); // valid still works
 }
 
+test "every docs/sas-functions.md entry is in the gap-classification name sets" {
+    // The exit-2 split (unwritten SAS function vs misspelling) is only as good as
+    // these closed sets. A name the coverage list documents but the sets lack
+    // would exit 1 for valid SAS, so the doc and the sets must not drift.
+    const doc = @embedFile("sas_functions_doc");
+    var lines = std.mem.splitScalar(u8, doc, '\n');
+    var funcs: usize = 0;
+    var calls: usize = 0;
+    while (lines.next()) |line| {
+        if (line.len < 7 or !std.mem.startsWith(u8, line, "- [") or line[4] != ']' or line[5] != ' ') continue;
+        var rest = line[6..];
+        const is_call = std.mem.startsWith(u8, rest, "CALL ");
+        if (is_call) rest = rest[5..];
+        var end: usize = 0;
+        while (end < rest.len and (std.ascii.isAlphanumeric(rest[end]) or rest[end] == '_')) end += 1;
+        const nm = rest[0..end];
+        if (nm.len == 0) continue; // `- [x] CALL   (the CALL statement …)`
+        if (is_call) {
+            calls += 1;
+            if (!@import("exec.zig").isCallRoutine(nm)) {
+                std.debug.print("CALL {s} is in docs/sas-functions.md but not exec.isCallRoutine\n", .{nm});
+                return error.TestUnexpectedResult;
+            }
+        } else {
+            funcs += 1;
+            if (!isSasFunction(nm)) {
+                std.debug.print("{s} is in docs/sas-functions.md but not sas_function_names\n", .{nm});
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+    // Non-vacuity: the parse found the list, and the list is the whole set.
+    try t.expectEqual(sas_function_names.len, funcs);
+    try t.expect(calls > 60);
+}
+
 test "unknown function reports and yields missing; wrong arity aborts the step" {
     var h = harness();
     defer h.deinit();
@@ -6285,6 +6337,8 @@ test "unknown function reports and yields missing; wrong arity aborts the step" 
     try t.expect((try dispatch(&e, "fexist", &.{strV("myref")})).isMissing());
     try t.expectEqual(@as(u8, 2), diag.exitCode(diag.gapHit(), h.diags.hasErrors()));
     try t.expect(isSasFunction("FILEEXIST") and isSasFunction("fexist") and !isSasFunction("filexist"));
+    // one name from each source book beyond the Functions dictionary's core
+    try t.expect(isSasFunction("zipcity") and isSasFunction("kscan") and isSasFunction("getoption") and isSasFunction("tslvl"));
 
     // BUG-badaritywrongtype: a wrong-arity call is a step-aborting ERROR, not a
     // NOTE-and-missing (oracle: "ERROR 72-185: The ABS function call has too

@@ -1,12 +1,19 @@
 # SAS 9.4 Functions & CALL Routines — coverage checklist
 
-Target (Phase F): implement **all 615** functions/CALL routines in
-the SAS Functions and CALL Routines reference (the Dictionary, pp.210-1709). This file is the
+Target (Phase F): implement every function/CALL routine in the dictionary of
+*SAS 9.4 Functions and CALL Routines: Reference, Fifth Edition*, plus the
+functions documented only in *SAS 9.4 National Language Support (NLS): Reference
+Guide, Fifth Edition* (the K-functions, TZONE*, UNICODE* and the rest), *SAS 9.4
+System Options: Reference, Fifth Edition* (GETOPTION) and *SAS 9.4 Companion for
+UNIX Environments* (TSLVL). Each entry added from a book other than the Functions
+reference names its book. `src/functions.zig` `sas_function_names` and
+`src/exec.zig` `isCallRoutine` are this same set (a unit test fails when an
+entry here is missing from them). This file is the
 tracker: `[x]` = implemented in opensas with a fixture; `[ ]` = TODO.
 When a dev implements a function they read ONLY that function's Dictionary page
 for exact semantics, add a corpus fixture, and tick it here.
 
-**Coverage: 469/469 feasible (100%) — 146 marked [~] N/A (Git/SOAP/MODULE/file-I/O/memory/OS); 615 total documented**
+**Coverage: 471/539 feasible (87%) — 68 TODO, 165 marked [~] N/A (Git/SOAP/MODULE/LDAP/file-I/O/memory/OS); 704 total documented**
 
 Truly out-of-scope for a CSV/in-memory interpreter (memory PEEK/POKE, external
 DB/file engines, Git, GTL-only) may be marked `[~]` N/A with a one-line reason;
@@ -17,7 +24,7 @@ they don't block 100% of the *feasible* set.
 > **Reading one function's spec (avoid context rot):** do NOT open the whole
 > manual. Find the function's page in the reference and read ONLY it.
 
-> **Both unblock levers LANDED — zero `[ ]` remain (Phase-F-final, bfa2039):**
+> **Both unblock levers LANDED — zero `[ ]` remained of the original 615 (Phase-F-final, bfa2039); the `[ ]` entries now are the names added later from the full 9.4 dictionaries:**
 > - **CALL routines (lever 1):** DONE. Mutation dispatch lives in `exec.runCall`
 >   (out-arg write-back incl. array elements); RNG stream state (Lehmer +
 >   MT19937 via CALL STREAMINIT) lives in evaluator state; PRX routines dispatch
@@ -35,6 +42,7 @@ they don't block 100% of the *feasible* set.
 - [x] AIRY
 - [x] ALLCOMB   (function form: mutates args + returns status; Phase-F-final; fixture func_combinatorics)
 - [x] ALLPERM   (function form: mutates args + returns status; Phase-F-final; fixture func_combinatorics)
+- [ ] ANORM420   (TODO, not yet assessed; NLS ref)
 - [x] ANYALNUM
 - [x] ANYALPHA
 - [x] ANYCNTRL
@@ -58,6 +66,7 @@ they don't block 100% of the *feasible* set.
 - [x] ATTRC
 - [x] ATTRN
 - [x] BAND
+- [ ] BASECHAR   (TODO, not yet assessed; NLS ref)
 - [x] BETA
 - [x] BETAINV
 - [x] BLACKCLPRC
@@ -81,7 +90,20 @@ they don't block 100% of the *feasible* set.
 - [~] CALL EXECUTE   (engine, not a value-returning routine: queues generated SAS code. GH#13 — the argument is macro-processed AT CALL TIME and only the SAS statements it generates are deferred to the step boundary, the two timings Macro Language Ref printed p.123 "CALL EXECUTE Routine Timing Details" prescribes; fixture call_execute_macro. Residual, loud at rc 2: %NRSTR/%STR-quoted text, whose whole point is deferring resolution PAST the queue drain — the drain lexes, it does not macro-process)
 - [x] CALL GRAYCODE   (Phase-F-callbatch; fixture call_combinatorics)
 - [~] CALL IS8601_CONVERT   (GH#50: only 'dt/dt'→'du' — two datetimes → duration seconds = later−earlier; every other from/to combo fails loud. Full model still absent: P-string durations with calendar Y/M components, the other interval forms (dt/du, du/dt), 6-component decomposition, calendar-aware duration arithmetic — disproportionate multi-mode build, full [x] deferred)
+- [ ] CALL KSCANX   (TODO, not yet assessed; NLS ref)
 - [x] CALL LABEL   (already implemented + tested; Phase-F-callbatch)
+- [~] CALL LDAPS_ADD   (N/A: LDAP directory service; Functions ref)
+- [~] CALL LDAPS_ATTRNAME   (N/A: LDAP directory service; Functions ref)
+- [~] CALL LDAPS_ATTRVALUE   (N/A: LDAP directory service; Functions ref)
+- [~] CALL LDAPS_CLOSE   (N/A: LDAP directory service; Functions ref)
+- [~] CALL LDAPS_DELETE   (N/A: LDAP directory service; Functions ref)
+- [~] CALL LDAPS_ENTRY   (N/A: LDAP directory service; Functions ref)
+- [~] CALL LDAPS_FREE   (N/A: LDAP directory service; Functions ref)
+- [~] CALL LDAPS_MODIFY   (N/A: LDAP directory service; Functions ref)
+- [~] CALL LDAPS_OPEN   (N/A: LDAP directory service; Functions ref)
+- [~] CALL LDAPS_SEARCH   (N/A: LDAP directory service; Functions ref)
+- [~] CALL LDAPS_SEARCH_PAGE   (N/A: LDAP directory service; Functions ref)
+- [~] CALL LDAPS_SETOPTIONS   (N/A: LDAP directory service; Functions ref)
 - [x] CALL LEXCOMB
 - [x] CALL LEXCOMBI   (Phase-F-callbatch; fixture call_combinatorics)
 - [x] CALL LEXPERK   (Phase-F-callbatch; fixture call_combinatorics)
@@ -212,10 +234,13 @@ they don't block 100% of the *feasible* set.
 - [x] DUR
 - [x] DURP
 - [x] EFFRATE
+- [ ] ENCODCOMPAT   (TODO, not yet assessed; NLS ref)
+- [ ] ENCODISVALID   (TODO, not yet assessed; NLS ref)
 - [~] ENVLEN   (N/A: OS/engine external)
 - [x] ERF
 - [x] ERFC
 - [x] EUCLID
+- [ ] EUROCURR   (TODO, not yet assessed; NLS ref)
 - [x] EXIST
 - [x] EXP
 - [x] FACT
@@ -266,6 +291,11 @@ they don't block 100% of the *feasible* set.
 - [x] GEODIST
 - [x] GEOMEAN
 - [x] GEOMEANZ
+- [ ] GETLOCENV   (TODO, not yet assessed; NLS ref)
+- [ ] GETOPTION   (TODO, not yet assessed; System Options ref)
+- [ ] GETPXLANGUAGE   (TODO, not yet assessed; NLS ref)
+- [ ] GETPXLOCALE   (TODO, not yet assessed; NLS ref)
+- [ ] GETPXREGION   (TODO, not yet assessed; NLS ref)
 - [x] GETVARC
 - [x] GETVARN
 - [~] GIT_BRANCH_CHKOUT   (N/A: Git repo ops)
@@ -381,7 +411,46 @@ they don't block 100% of the *feasible* set.
 - [~] JSONPP   (N/A: file-I/O (input/output files/filerefs), not in-memory)
 - [x] JULDATE
 - [x] JULDATE7
+- [ ] KCHARLIST   (TODO, not yet assessed; NLS ref)
+- [ ] KCOMPARE   (TODO, not yet assessed; NLS ref)
+- [ ] KCOMPRESS   (TODO, not yet assessed; NLS ref)
+- [ ] KCOUNT   (TODO, not yet assessed; NLS ref)
+- [ ] KCOUNTC   (TODO, not yet assessed; NLS ref)
+- [ ] KCOUNTW   (TODO, not yet assessed; NLS ref)
+- [ ] KCOUNTX   (TODO, not yet assessed; NLS ref)
+- [ ] KCVT   (TODO, not yet assessed; NLS ref)
+- [ ] KFIND   (TODO, not yet assessed; NLS ref)
+- [ ] KFINDC   (TODO, not yet assessed; NLS ref)
+- [ ] KFINDW   (TODO, not yet assessed; NLS ref)
+- [ ] KINDEX   (TODO, not yet assessed; NLS ref)
+- [ ] KINDEXB   (TODO, not yet assessed; NLS ref)
+- [ ] KINDEXC   (TODO, not yet assessed; NLS ref)
+- [ ] KINDEXCB   (TODO, not yet assessed; NLS ref)
+- [ ] KLEFT   (TODO, not yet assessed; NLS ref)
+- [ ] KLENGTH   (TODO, not yet assessed; NLS ref)
+- [ ] KLOWCASE   (TODO, not yet assessed; NLS ref)
+- [ ] KPROPCASE   (TODO, not yet assessed; NLS ref)
+- [ ] KPROPCHAR   (TODO, not yet assessed; NLS ref)
+- [ ] KPROPDATA   (TODO, not yet assessed; NLS ref)
+- [ ] KREVERSE   (TODO, not yet assessed; NLS ref)
+- [ ] KRIGHT   (TODO, not yet assessed; NLS ref)
+- [ ] KSCAN   (TODO, not yet assessed; NLS ref)
+- [ ] KSCANX   (TODO, not yet assessed; NLS ref)
+- [ ] KSTRCAT   (TODO, not yet assessed; NLS ref)
+- [x] KSTRIP   (NLS ref; implemented, was missing from this list)
+- [ ] KSUBSTR   (TODO, not yet assessed; NLS ref)
+- [ ] KSUBSTRB   (TODO, not yet assessed; NLS ref)
+- [ ] KSUBSTRN   (TODO, not yet assessed; NLS ref)
+- [ ] KTRANSLATE   (TODO, not yet assessed; NLS ref)
+- [ ] KTRIM   (TODO, not yet assessed; NLS ref)
+- [ ] KTRUNCATE   (TODO, not yet assessed; NLS ref)
+- [ ] KUPCASE   (TODO, not yet assessed; NLS ref)
+- [ ] KUPDATE   (TODO, not yet assessed; NLS ref)
+- [ ] KUPDATEB   (TODO, not yet assessed; NLS ref)
+- [ ] KUPDATES   (TODO, not yet assessed; NLS ref)
 - [x] KURTOSIS
+- [ ] KVERIFY   (TODO, not yet assessed; NLS ref)
+- [ ] KVERIFYB   (TODO, not yet assessed; NLS ref)
 - [x] LAG
 - [x] LARGEST
 - [x] LBOUND
@@ -436,7 +505,10 @@ they don't block 100% of the *feasible* set.
 - [x] MVALID
 - [x] N
 - [x] NETPV
+- [ ] NLDATE   (TODO, not yet assessed; NLS ref)
+- [ ] NLDATM   (TODO, not yet assessed; NLS ref)
 - [x] NLITERAL
+- [ ] NLTIME   (TODO, not yet assessed; NLS ref)
 - [x] NMISS
 - [x] NOMRATE
 - [x] NORMAL
@@ -520,12 +592,15 @@ they don't block 100% of the *feasible* set.
 - [x] ROUND
 - [x] ROUNDE
 - [x] ROUNDZ
+- [ ] SASMSG   (TODO, not yet assessed; NLS ref)
+- [ ] SASMSGL   (TODO, not yet assessed; NLS ref)
 - [x] SAVING
 - [x] SAVINGS   (doc-exact: base,init,amount,number,dep-iv,cmp-iv,date1,rate1,…; verified vs PDF p.1460 — BUG-savingstv QA repro was malformed; fixture fin_savings_timevalue)
 - [x] SCAN
 - [x] SDF
 - [x] SEC
 - [x] SECOND
+- [ ] SETLOCALE   (TODO, not yet assessed; NLS ref)
 - [x] SHA256
 - [x] SHA256HEX
 - [x] SHA256HMACHEX
@@ -542,6 +617,7 @@ they don't block 100% of the *feasible* set.
 - [~] SOAPWS   (N/A: SOAP web service)
 - [~] SOAPWSMETA   (N/A: SOAP web service)
 - [x] SORT   (function form: mutates args + returns status; Phase-F-final; fixture func_combinatorics)
+- [ ] SORTKEY   (TODO, not yet assessed; NLS ref)
 - [x] SOUNDEX
 - [x] SPEDIS
 - [x] SQRT
@@ -579,18 +655,28 @@ they don't block 100% of the *feasible* set.
 - [x] TODAY
 - [x] TRANSLATE
 - [x] TRANSTRN
+- [ ] TRANTAB   (TODO, not yet assessed; NLS ref)
 - [x] TRANWRD
 - [x] TRIGAMMA
 - [x] TRIM
 - [x] TRIMN
 - [x] TRUNC
+- [~] TSLVL   (N/A: SAS module installation levels; UNIX companion)
 - [~] TSO   (N/A: z/OS TSO host-only)
 - [x] TYPEOF
+- [ ] TZONEDSTNAME   (TODO, not yet assessed; NLS ref)
+- [ ] TZONEDSTOFF   (TODO, not yet assessed; NLS ref)
 - [x] TZONEID
 - [x] TZONENAME
 - [x] TZONEOFF
 - [x] TZONES2U
+- [ ] TZONESTTNAME   (TODO, not yet assessed; NLS ref)
+- [ ] TZONESTTOFF   (TODO, not yet assessed; NLS ref)
 - [x] TZONEU2S
+- [ ] UNICODE   (TODO, not yet assessed; NLS ref)
+- [ ] UNICODEC   (TODO, not yet assessed; NLS ref)
+- [ ] UNICODELEN   (TODO, not yet assessed; NLS ref)
+- [ ] UNICODEWIDTH   (TODO, not yet assessed; NLS ref)
 - [x] UNIFORM
 - [x] UPCASE
 - [x] URLDECODE
@@ -606,6 +692,7 @@ they don't block 100% of the *feasible* set.
 - [x] VARNUM
 - [~] VARRAY   (N/A: array definitions live in the parser/exec; no array-name table reachable from functions.zig. Unblock: dev1 expose an array registry)
 - [~] VARRAYX   (N/A: as VARRAY — no array registry reachable)
+- [ ] VARTRANSCODE   (TODO, not yet assessed; NLS ref)
 - [x] VARTYPE
 - [x] VERIFY
 - [x] VFORMAT    (by-ref var format; parser rewrites → VFORMATX; fixture vfunc_format_nonx)
@@ -632,6 +719,8 @@ they don't block 100% of the *feasible* set.
 - [x] VLENGTHX   (declared length via pdv.Var.len; fixture vlength)
 - [x] VNAME
 - [x] VNAMEX
+- [ ] VTRANSCODE   (TODO, not yet assessed; NLS ref)
+- [ ] VTRANSCODEX   (TODO, not yet assessed; NLS ref)
 - [x] VTYPE
 - [x] VTYPEX
 - [x] VVALUE   (fixture tests/corpus/vvalue)
@@ -644,3 +733,10 @@ they don't block 100% of the *feasible* set.
 - [x] YEAR
 - [x] YIELDP
 - [x] YRDIF
+- [x] YYQ   (Functions ref; implemented, was missing from this list)
+- [~] ZIPCITY   (N/A: reads the SASHELP.ZIPCODE data set, which opensas does not ship; Functions ref)
+- [~] ZIPCITYDISTANCE   (N/A: reads the SASHELP.ZIPCODE data set, which opensas does not ship; Functions ref)
+- [~] ZIPFIPS   (N/A: reads the SASHELP.ZIPCODE data set, which opensas does not ship; Functions ref)
+- [~] ZIPNAME   (N/A: reads the SASHELP.ZIPCODE data set, which opensas does not ship; Functions ref)
+- [~] ZIPNAMEL   (N/A: reads the SASHELP.ZIPCODE data set, which opensas does not ship; Functions ref)
+- [~] ZIPSTATE   (N/A: reads the SASHELP.ZIPCODE data set, which opensas does not ship; Functions ref)
