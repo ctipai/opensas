@@ -1044,7 +1044,11 @@ fn writeMember(a: std.mem.Allocator, io: Io, lr: Libref, ds_name: []const u8, ds
         // A real XPT-export macro makes the target dir via `X mkdir` — a no-op
         // global here — so create the parent ourselves.
         if (std.fs.path.dirname(lr.dir)) |parent| Io.Dir.cwd().createDirPath(io, parent) catch {};
-        Io.Dir.cwd().writeFile(io, .{ .sub_path = lr.dir, .data = bytes }) catch {};
+        // A failed write is an ERROR, never a clean exit: the member the
+        // program asked for is not on disk (read-only or missing directory,
+        // full disk), and a caller that trusts rc 0 would ship without it.
+        Io.Dir.cwd().writeFile(io, .{ .sub_path = lr.dir, .data = bytes }) catch |e|
+            failLoud("XPORT: could not write {s} ({s}) — member {s} NOT written", .{ lr.dir, @errorName(e), ds_name });
         return;
     }
     // A `.sas7bdat` libref is a read-only source (no member path): skip.
@@ -1102,20 +1106,23 @@ fn writeMember(a: std.mem.Allocator, io: Io, lr: Libref, ds_name: []const u8, ds
     };
     if (s7bytes.len > 0) {
         const s7 = try std.fmt.allocPrint(a, "{s}/{s}.sas7bdat", .{ lr.dir, ds_name });
-        Io.Dir.cwd().writeFile(io, .{ .sub_path = s7, .data = s7bytes }) catch {};
+        Io.Dir.cwd().writeFile(io, .{ .sub_path = s7, .data = s7bytes }) catch |e|
+            failLoud("could not write {s} ({s}) — data set {s} NOT written", .{ s7, @errorName(e), ds_name });
     }
     const path = try std.fmt.allocPrint(a, "{s}/{s}.csv", .{ lr.dir, ds_name });
     const text = try sas.io.writeCsv(a, ds);
     // BUG-csvzerocolphantom: an empty body means the writer REFUSED (0 variables
     // — CSV has no encoding for it; it reported the gap itself). Skip the write
     // rather than leave a file that reloads as a lie, same shape as `s7bytes`.
-    if (text.len > 0) Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = text }) catch {};
+    if (text.len > 0) Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = text }) catch |e|
+        failLoud("could not write {s} ({s})", .{ path, @errorName(e) });
     // variable labels go in a SEPARATE `.labels` sidecar (the sas7bdat writer
     // carries type/length but not labels/formats yet) — unchanged behavior
     // (BUG-labelspersist); no file is written when nothing is labeled.
     if (try sas.io.labelSidecar(a, ds)) |meta| {
         const lpath = try std.fmt.allocPrint(a, "{s}/{s}{s}", .{ lr.dir, ds_name, sas.io.label_ext });
-        Io.Dir.cwd().writeFile(io, .{ .sub_path = lpath, .data = meta }) catch {};
+        Io.Dir.cwd().writeFile(io, .{ .sub_path = lpath, .data = meta }) catch |e|
+            failLoud("could not write {s} ({s})", .{ lpath, @errorName(e) });
     }
 }
 

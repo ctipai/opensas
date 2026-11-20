@@ -1448,7 +1448,9 @@ pub const Executor = struct {
         // print/log keyword destination (GAP-fileprint) writes NO file — its
         // PUT output already went to the log via putBuf.
         if (self.file) |f| if (!f.print_log) if (self.io) |io_| {
-            Io.Dir.cwd().writeFile(io_, .{ .sub_path = f.path, .data = self.file_out.items }) catch {};
+            // a FILE the step could not write is an ERROR, not a clean exit
+            Io.Dir.cwd().writeFile(io_, .{ .sub_path = f.path, .data = self.file_out.items }) catch |e|
+                try self.diags.report(.err, 0, "FILE: could not write {s} ({s})", .{ f.path, @errorName(e) });
         };
     }
 
