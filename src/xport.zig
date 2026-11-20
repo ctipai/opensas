@@ -103,6 +103,9 @@ pub fn read(a: std.mem.Allocator, bytes: []const u8, name: []const u8) Error!*Da
             const long = trimTrail(ns[88..120]);
             if (long.len > 0) vars[i].name = long;
         }
+        // A numeric is 2..8 bytes (SAS LENGTH 3..8; a short one keeps the
+        // high-order bytes of the IBM float). 0 or over 8 is a damaged NAMESTR.
+        if (!vars[i].is_char and (vars[i].len == 0 or vars[i].len > 8)) return error.NotXport;
         obs_len += vars[i].len;
     }
     p = roundUp(p + nvars * namestr_size, 80); // NAMESTR section padded to 80
@@ -204,7 +207,12 @@ pub fn read(a: std.mem.Allocator, bytes: []const u8, name: []const u8) Error!*Da
         var col: usize = 0;
         for (vars, 0..) |v, i| {
             const field = rec[col .. col + v.len];
-            cells[i] = if (v.is_char) .{ .str = try a.dupe(u8, trimTrail(field)) } else ibmToValue(field);
+            cells[i] = if (v.is_char) .{ .str = try a.dupe(u8, trimTrail(field)) } else blk: {
+                // short numerics drop low-order mantissa bytes: zero-fill to 8
+                var f8 = [_]u8{0} ** 8;
+                @memcpy(f8[0..field.len], field);
+                break :blk ibmToValue(&f8);
+            };
             col += v.len;
         }
         try ds.rows.append(a, cells);
@@ -233,8 +241,11 @@ pub fn read(a: std.mem.Allocator, bytes: []const u8, name: []const u8) Error!*Da
 
 /// Whether the 80-byte record at `p` is the section header `kind` (8 chars,
 /// blank padded, e.g. "MEMBER  ", "NAMSTV8 ").
+/// The whole 80-byte record must be present: callers read fields up to byte 80
+/// of it (the OBSV8 and LABELV8 counts at 48..80), and a file cut inside its
+/// last header is truncated, so NotXport, never a read past the buffer.
 fn header(bytes: []const u8, p: usize, kind: []const u8) bool {
-    if (p + 28 > bytes.len) return false;
+    if (p + 80 > bytes.len) return false;
     return std.mem.startsWith(u8, bytes[p..], "HEADER RECORD*******") and std.mem.eql(u8, bytes[p + 20 .. p + 28], kind);
 }
 
@@ -526,7 +537,7 @@ fn allBlank(rec: []const u8) bool {
 /// IBM System/360 hex float (8 bytes, big-endian) → f64: sign · mantissa/2^56 ·
 /// 16^(exp−64). A missing indicator (`.`/`_`/`A`-`Z`) in byte 0 with a zero
 /// mantissa is a SAS missing; all-zero bytes are 0.
-fn ibmToValue(f: []const u8) Value {
+fn ibmToValue(f: *const [8]u8) Value {
     var rest_zero = true;
     for (f[1..8]) |b| {
         if (b != 0) rest_zero = false;
@@ -968,4 +979,66 @@ test "XPORT v8 read: a stated OBSV8 count is exact, and a short file is LOUD" {
     // not detectable from the bytes.
     @memcpy(v8[obs_hdr + 48 .. obs_hdr + 80], "            100                 ");
     try t.expectError(error.NotXport, read(a, v8, "cnt"));
+}
+
+test "XPORT v8 read: a file cut anywhere in its headers, NAMESTRs or LABELV8 is NotXport, never an out-of-bounds read" {
+    const t = std.testing;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var ds = Dataset.init(a, "cut");
+    _ = try ds.addColumn("x", .num);
+    _ = try ds.addColumn("c", .char);
+    try ds.appendRow(&.{ .{ .num = 1 }, .{ .str = "ab" } });
+    const label = "M" ** 60;
+    var sec: std.ArrayList(u8) = .empty;
+    try sec.appendSlice(a, "HEADER RECORD*******LABELV8 HEADER RECORD!!!!!!!1" ++ " " ** 31);
+    for ([_]u16{ 1, 10, label.len }) |v| try sec.appendSlice(a, &.{ @intCast(v >> 8), @truncate(v) });
+    try sec.appendSlice(a, "LONG_NAME_" ++ label);
+    while (sec.items.len % 80 != 0) try sec.append(a, ' ');
+    const full = try asV8(a, try write(a, &ds), sec.items);
+    _ = try read(a, full, "cut"); // the uncut file reads
+
+    const ns_hdr = std.mem.indexOf(u8, full, "HEADER RECORD*******NAMSTV8 ").?;
+    const lab_hdr = std.mem.indexOf(u8, full, "HEADER RECORD*******LABELV8 ").?;
+    const obs_hdr = std.mem.indexOf(u8, full, "HEADER RECORD*******OBSV8   ").?;
+    // every cut from the NAMSTV8 header to the end of the OBSV8 header: the
+    // NAMSTV8 header, both NAMESTRs, their padding, the LABELV8 header, its
+    // record and padding, and every length 0..79 into the final header record
+    var cut = ns_hdr;
+    while (cut < obs_hdr + 80) : (cut += 1)
+        try t.expectError(error.NotXport, read(a, full[0..cut], "cut"));
+    try t.expect(lab_hdr > ns_hdr and obs_hdr > lab_hdr); // the sweep spans all three
+}
+
+test "XPORT read: a short numeric (LENGTH 3) keeps its high-order bytes; length 0 or over 8 is NotXport" {
+    const t = std.testing;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var ds = Dataset.init(a, "sn");
+    _ = try ds.addColumn("x", .num);
+    try ds.appendRow(&.{.{ .num = 2 }}); // IBM 41 20 00 00 00 00 00 00
+    try ds.appendRow(&.{.{ .num = -0.5 }}); // IBM C0 80 00 …
+    const full = try write(a, &ds);
+    // Re-pack as a 3-byte numeric: NAMESTR nlng 8 → 3, observations 3 bytes
+    // each (the high-order bytes), blank padding to 80.
+    const obs_hdr = std.mem.indexOf(u8, full, "HEADER RECORD*******OBS     ").?;
+    var out: std.ArrayList(u8) = .empty;
+    try out.appendSlice(a, full[0 .. obs_hdr + 80]);
+    out.items[640 + 4] = 0;
+    out.items[640 + 5] = 3;
+    for (0..2) |r| try out.appendSlice(a, full[obs_hdr + 80 + r * 8 ..][0..3]);
+    while (out.items.len % 80 != 0) try out.append(a, ' ');
+    const back = try read(a, out.items, "sn");
+    try t.expectEqual(@as(usize, 2), back.rows.items.len);
+    try t.expectEqual(@as(f64, 2), back.rows.items[0][0].num);
+    try t.expectEqual(@as(f64, -0.5), back.rows.items[1][0].num);
+
+    out.items[640 + 5] = 9; // a 9-byte numeric is not XPORT
+    try t.expectError(error.NotXport, read(a, out.items, "sn"));
+    out.items[640 + 5] = 0; // nor a 0-byte one
+    try t.expectError(error.NotXport, read(a, out.items, "sn"));
 }
